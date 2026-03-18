@@ -54,7 +54,7 @@ export default function Dashboard({ user, onLogout }) {
     const token = localStorage.getItem("token");
     
     try {
-      const res = await fetch("http://localhost:3001/api/auth/tasks/complete", {
+      const res = await fetch("https://earnup-udhe.onrender.com/api/auth/tasks/complete", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",

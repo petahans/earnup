@@ -39,7 +39,7 @@ export default function App() {
         ? { email: form.email, password: form.password }
         : { name: form.name, email: form.email, password: form.password, phone: form.phone };
 
-      const res = await fetch(`http://localhost:3001/api/auth/${endpoint}`, {
+      const res = await fetch(`https://earnup-udhe.onrender.com/api/auth/${endpoint}`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(body),
