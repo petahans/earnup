@@ -9,7 +9,7 @@ const BG2 = "#1A1B23";
 const BG3 = "#1E1F29";
 const BORDER = "#2A2B38";
 
-const tasks = [
+const fallbackTasks = [
   { id: 1, type: "game", title: "Coin Rush", desc: "Erreiche Level 5", reward: 250, time: "10 Min", rating: 5, bg: "linear-gradient(135deg, #1a0a2e, #2d1b69)" },
   { id: 2, type: "game", title: "Bubble Pop", desc: "3 Runden ohne Fehler", reward: 150, time: "7 Min", rating: 4, bg: "linear-gradient(135deg, #0a1a2e, #1b3a69)" },
   { id: 3, type: "game", title: "Match Master", desc: "10 Züge in Folge lösen", reward: 175, time: "8 Min", rating: 4, bg: "linear-gradient(135deg, #1a2e0a, #3a6921)" },
@@ -58,6 +58,7 @@ function useIsMobile() {
 
 export default function Dashboard({ user, onLogout }) {
   const [activeNav, setActiveNav] = useState("earn");
+  const [tasks, setTasks] = useState(fallbackTasks);
   const [completedTasks, setCompletedTasks] = useState([]);
   const [coins, setCoins] = useState(user?.coins || 0);
   const [toast, setToast] = useState(null);
@@ -73,11 +74,17 @@ export default function Dashboard({ user, onLogout }) {
 
     const load = async () => {
       try {
-        const [completedRes, meRes, lbRes] = await Promise.all([
+        const [tasksRes, completedRes, meRes, lbRes] = await Promise.all([
+          fetch(`${API_BASE}/api/auth/tasks`),
           fetch(`${API_BASE}/api/auth/tasks/completed`, { headers }),
           fetch(`${API_BASE}/api/auth/me`, { headers }),
           fetch(`${API_BASE}/api/auth/leaderboard`, { headers }),
         ]);
+
+        const tasksData = await tasksRes.json().catch(() => ({}));
+        if (tasksRes.ok && Array.isArray(tasksData.tasks)) {
+          setTasks(tasksData.tasks);
+        }
 
         const completedData = await completedRes.json().catch(() => ({}));
         if (completedRes.ok && Array.isArray(completedData.taskIds)) {
