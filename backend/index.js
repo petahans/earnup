@@ -17,25 +17,13 @@ app.use(cors({
     // Non-browser requests (e.g. curl / server-to-server) have no Origin header
     if (!origin) return callback(null, true);
 
-    // If explicitly configured, only allow those origins
-    if (allowedOrigins.length > 0) {
-      if (allowedOrigins.includes(origin)) return callback(null, true);
-      return callback(new Error('Not allowed by CORS'));
-    }
+    // Wenn kein CORS_ORIGIN gesetzt ist, erlauben wir standardmaessig alle Origins,
+    // damit die App out-of-the-box wieder funktioniert.
+    if (allowedOrigins.length === 0) return callback(null, true);
 
-    const defaultProdOrigins = ['https://earnup-udhe.onrender.com'];
-    const defaultDevOrigins = ['http://localhost:5173', 'http://localhost:3000'];
-
-    // Development default: be permissive
-    if (process.env.NODE_ENV !== 'production') {
-      if (defaultDevOrigins.includes(origin)) return callback(null, true);
-      return callback(null, true);
-    }
-
-    // Production default fallback: allow known frontend origin
-    if (defaultProdOrigins.includes(origin)) return callback(null, true);
+    if (allowedOrigins.includes(origin)) return callback(null, true);
     return callback(new Error('Not allowed by CORS'));
-  }
+  },
 }));
 app.use(express.json());
 
