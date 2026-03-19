@@ -56,7 +56,7 @@ export default function App() {
         setLoggedUser(data.user);
         setScreen("dashboard");
       }
-    } catch (err) {
+    } catch {
       setErrors({ general: "Server nicht erreichbar" });
       triggerShake();
     } finally {

@@ -30,7 +30,7 @@ const giftRewards = [
   { id: "spotify", label: "Spotify", bg: "linear-gradient(135deg, #121212, #1db954)", textColor: "#1db954", minCoins: 900, symbol: "♫" },
 ];
 
-const leaderboard = [
+const defaultLeaderboard = [
   { rank: 1, name: "Lisa M.", coins: 12400, avatar: "L" },
   { rank: 2, name: "Tom K.", coins: 10850, avatar: "T" },
   { rank: 3, name: "Sara B.", coins: 8990, avatar: "S" },
@@ -43,6 +43,8 @@ const navItems = [
   { id: "cashout", icon: "💸", label: "Auszahlen" },
   { id: "leaderboard", icon: "🏆", label: "Rangliste" },
 ];
+
+const API_BASE = "https://earnup-udhe.onrender.com";
 
 function useIsMobile() {
   const [mobile, setMobile] = useState(window.innerWidth < 860);
@@ -59,21 +61,78 @@ export default function Dashboard({ user, onLogout }) {
   const [completedTasks, setCompletedTasks] = useState([]);
   const [coins, setCoins] = useState(user?.coins || 0);
   const [toast, setToast] = useState(null);
+  const [completingTaskIds, setCompletingTaskIds] = useState([]);
+  const [leaderboard, setLeaderboard] = useState(defaultLeaderboard);
   const isMobile = useIsMobile();
+
+  useEffect(() => {
+    const token = localStorage.getItem("token");
+    if (!token) return;
+
+    const headers = { "Authorization": `Bearer ${token}` };
+
+    const load = async () => {
+      try {
+        const [completedRes, meRes, lbRes] = await Promise.all([
+          fetch(`${API_BASE}/api/auth/tasks/completed`, { headers }),
+          fetch(`${API_BASE}/api/auth/me`, { headers }),
+          fetch(`${API_BASE}/api/auth/leaderboard`, { headers }),
+        ]);
+
+        const completedData = await completedRes.json().catch(() => ({}));
+        if (completedRes.ok && Array.isArray(completedData.taskIds)) {
+          setCompletedTasks(completedData.taskIds);
+        }
+
+        const meData = await meRes.json().catch(() => ({}));
+        if (meRes.ok && meData.user && meData.user.coins != null) {
+          setCoins(Number(meData.user.coins));
+        }
+
+        const lbData = await lbRes.json().catch(() => ({}));
+        if (lbRes.ok && Array.isArray(lbData.leaderboard)) {
+          setLeaderboard(lbData.leaderboard);
+        }
+      } catch {
+        // silently ignore; UI stays usable with cached data
+      }
+    };
+
+    load();
+  }, []);
 
   const completeTask = async (task) => {
     if (completedTasks.includes(task.id)) return;
+    if (completingTaskIds.includes(task.id)) return;
+
     const token = localStorage.getItem("token");
+    if (!token) {
+      showToast("Bitte anmelden.");
+      return;
+    }
+
+    setCompletingTaskIds(prev => [...prev, task.id]);
+
     try {
-      const res = await fetch("https://earnup-udhe.onrender.com/api/auth/tasks/complete", {
+      const res = await fetch(`${API_BASE}/api/auth/tasks/complete`, {
         method: "POST",
         headers: { "Content-Type": "application/json", "Authorization": `Bearer ${token}` },
-        body: JSON.stringify({ taskId: String(task.id), reward: task.reward }),
+        body: JSON.stringify({ taskId: String(task.id) }),
       });
-      const data = await res.json();
-      if (res.ok) { setCompletedTasks(prev => [...prev, task.id]); setCoins(data.coins); showToast(`+${task.reward} Coins verdient! 🎉`); }
+
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        showToast(data.error || "Fehler beim Abschließen");
+        return;
+      }
+
+      setCompletedTasks(prev => [...prev, task.id]);
+      setCoins(Number(data.coins));
+      showToast(`+${task.reward} Coins verdient! 🎉`);
     } catch {
-      setCompletedTasks(prev => [...prev, task.id]); setCoins(c => c + task.reward); showToast(`+${task.reward} Coins verdient! 🎉`);
+      showToast("Server nicht erreichbar");
+    } finally {
+      setCompletingTaskIds(prev => prev.filter(id => id !== task.id));
     }
   };
 
@@ -124,8 +183,24 @@ export default function Dashboard({ user, onLogout }) {
           </div>
         </div>
         <div style={S.page}>
-          {activeNav === "earn" && <EarnPage tasks={tasks} completedTasks={completedTasks} completeTask={completeTask} />}
-          {activeNav === "cashout" && <CashoutPage cashRewards={cashRewards} giftRewards={giftRewards} coins={coins} showToast={showToast} />}
+          {activeNav === "earn" && (
+            <EarnPage
+              tasks={tasks}
+              completedTasks={completedTasks}
+              completingTaskIds={completingTaskIds}
+              completeTask={completeTask}
+            />
+          )}
+          {activeNav === "cashout" && (
+            <CashoutPage
+              cashRewards={cashRewards}
+              giftRewards={giftRewards}
+              coins={coins}
+              token={localStorage.getItem("token")}
+              onCoinsChange={(newCoins) => setCoins(newCoins)}
+              showToast={showToast}
+            />
+          )}
           {activeNav === "leaderboard" && <LeaderboardPage leaderboard={leaderboard} coins={coins} user={user} />}
         </div>
         {isMobile && (
@@ -143,7 +218,7 @@ export default function Dashboard({ user, onLogout }) {
   );
 }
 
-function EarnPage({ tasks, completedTasks, completeTask }) {
+function EarnPage({ tasks, completedTasks, completingTaskIds, completeTask }) {
   const [filter, setFilter] = useState("Alle");
   const filters = ["Alle", "Spiele", "Umfragen"];
   const filtered = filter === "Alle" ? tasks : filter === "Spiele" ? tasks.filter(t => t.type === "game") : tasks.filter(t => t.type === "survey");
@@ -154,16 +229,40 @@ function EarnPage({ tasks, completedTasks, completeTask }) {
       <div style={S.filterRow}>
         {filters.map(f => <button key={f} onClick={() => setFilter(f)} style={{ ...S.filterBtn, ...(filter === f ? S.filterBtnActive : {}) }}>{f}</button>)}
       </div>
-      {games.length > 0 && <><div style={S.sectionLabel}><span>🎮</span> Spiele</div><div style={S.offerGrid}>{games.map(t => <OfferCard key={t.id} task={t} done={completedTasks.includes(t.id)} onComplete={completeTask} />)}</div></>}
-      {surveys.length > 0 && <><div style={{ ...S.sectionLabel, marginTop: 28 }}><span>📋</span> Umfragen</div><div style={S.offerGrid}>{surveys.map(t => <OfferCard key={t.id} task={t} done={completedTasks.includes(t.id)} onComplete={completeTask} />)}</div></>}
+      {games.length > 0 && <><div style={S.sectionLabel}><span>🎮</span> Spiele</div><div style={S.offerGrid}>{games.map(t => (
+        <OfferCard
+          key={t.id}
+          task={t}
+          done={completedTasks.includes(t.id)}
+          loading={completingTaskIds.includes(t.id)}
+          onComplete={completeTask}
+        />
+      ))}</div></>}
+      {surveys.length > 0 && <><div style={{ ...S.sectionLabel, marginTop: 28 }}><span>📋</span> Umfragen</div><div style={S.offerGrid}>{surveys.map(t => (
+        <OfferCard
+          key={t.id}
+          task={t}
+          done={completedTasks.includes(t.id)}
+          loading={completingTaskIds.includes(t.id)}
+          onComplete={completeTask}
+        />
+      ))}</div></>}
     </div>
   );
 }
 
-function OfferCard({ task, done, onComplete }) {
+function OfferCard({ task, done, loading, onComplete }) {
   const stars = Array.from({ length: 5 }, (_, i) => i < task.rating ? "★" : "☆").join("");
   return (
-    <div style={{ ...S.offerCard, opacity: done ? 0.6 : 1 }} onClick={() => !done && onComplete(task)}>
+    <div
+      style={{
+        ...S.offerCard,
+        opacity: done ? 0.6 : 1,
+        filter: loading ? "grayscale(0.2)" : "none",
+        pointerEvents: done || loading ? "none" : "auto",
+      }}
+      onClick={() => !done && !loading && onComplete(task)}
+    >
       <div style={{ ...S.offerCardBg, background: task.bg }}>
         <div style={S.offerCardIcon}>{task.type === "game" ? "🎮" : "📋"}</div>
         {done && <div style={S.doneBadge}>✓</div>}
@@ -181,13 +280,32 @@ function OfferCard({ task, done, onComplete }) {
   );
 }
 
-function CashoutPage({ cashRewards, giftRewards, coins, showToast }) {
+function CashoutPage({ cashRewards, giftRewards, coins, token, onCoinsChange, showToast }) {
   const [selected, setSelected] = useState(null);
-  const [amount, setAmount] = useState("");
-  const handleRedeem = (r) => {
+
+  const handleRedeem = async (r) => {
+    if (!token) { showToast("Bitte anmelden."); return; }
     if (coins < r.minCoins) { showToast("Nicht genug Coins!"); return; }
-    showToast(`${r.label} Auszahlung gestartet! 🎉`);
-    setSelected(null); setAmount("");
+
+    try {
+      const res = await fetch(`${API_BASE}/api/auth/cashout/redeem`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "Authorization": `Bearer ${token}` },
+        body: JSON.stringify({ rewardId: r.id }),
+      });
+
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        showToast(data.error || "Fehler beim Einlösen");
+        return;
+      }
+
+      onCoinsChange(Number(data.coins));
+      showToast(`${r.label} Auszahlung gestartet! 🎉`);
+      setSelected(null);
+    } catch {
+      showToast("Server nicht erreichbar");
+    }
   };
   return (
     <div style={{ animation: "fadeIn 0.3s ease both" }}>
@@ -207,7 +325,7 @@ function CashoutPage({ cashRewards, giftRewards, coins, showToast }) {
             <div style={S.modalTitle}>{selected.label} einlösen</div>
             <div style={S.modalSub}>Mindestbetrag: ⚡ {selected.minCoins.toLocaleString()} Coins</div>
             <div style={S.modalBalance}>Verfügbar: ⚡ {coins.toLocaleString()}</div>
-            <input style={S.modalInput} placeholder="Betrag in Coins eingeben" value={amount} onChange={e => setAmount(e.target.value)} />
+            <input style={S.modalInput} readOnly value={selected.minCoins.toLocaleString()} />
             <div style={S.modalBtns}>
               <button onClick={() => setSelected(null)} style={S.modalCancelBtn}>Abbrechen</button>
               <button onClick={() => handleRedeem(selected)} style={S.modalConfirmBtn}>Einlösen</button>
@@ -230,16 +348,26 @@ function CashCard({ r, coins, onSelect, selected }) {
   );
 }
 
-function LeaderboardPage({ leaderboard, coins, user }) {
+function LeaderboardPage({ leaderboard = [], coins, user }) {
   const medals = ["🥇", "🥈", "🥉"];
-  const top3 = [leaderboard[1], leaderboard[0], leaderboard[2]];
+  const first = leaderboard?.[0];
+  const second = leaderboard?.[1];
+  const third = leaderboard?.[2];
+
+  const podiumItems = [
+    { e: second, transform: "scale(0.95)" },
+    { e: first, transform: "scale(1.1)" },
+    { e: third, transform: "scale(0.95)" },
+  ].filter(x => x.e);
+
+  const medalForRank = (rank) => medals[rank - 1] || `#${rank}`;
   return (
     <div style={{ animation: "fadeIn 0.3s ease both" }}>
       <div style={S.cashoutHeader}><div style={S.cashoutTitle}>🏆 Rangliste</div><div style={S.cashoutSub}>Die aktivsten Nutzer dieser Woche</div></div>
       <div style={S.podium}>
-        {top3.map((e, i) => (
-          <div key={e.rank} style={{ ...S.podiumItem, transform: i === 1 ? "scale(1.1)" : "scale(0.95)" }}>
-            <div style={S.podiumMedal}>{medals[e.rank - 1]}</div>
+        {podiumItems.map(({ e, transform }) => (
+          <div key={e.rank} style={{ ...S.podiumItem, transform }}>
+            <div style={S.podiumMedal}>{medalForRank(e.rank)}</div>
             <div style={{ ...S.podiumAvatar, background: e.rank === 1 ? `linear-gradient(135deg,${ACCENT},${ACCENT2})` : BG3 }}>{e.avatar}</div>
             <div style={S.podiumName}>{e.name}</div>
             <div style={S.podiumCoins}>⚡ {e.coins.toLocaleString()}</div>
@@ -247,11 +375,12 @@ function LeaderboardPage({ leaderboard, coins, user }) {
         ))}
       </div>
       <div style={S.leaderList}>
-        {leaderboard.map(e => {
+        {leaderboard.map((e, idx) => {
+          const rank = e.rank ?? (idx + 1);
           const isMe = e.name === user?.name;
           return (
-            <div key={e.rank} style={{ ...S.leaderRow, ...(isMe ? S.leaderRowMe : {}) }}>
-              <span style={S.leaderRank}>{medals[e.rank - 1] || `#${e.rank}`}</span>
+            <div key={rank} style={{ ...S.leaderRow, ...(isMe ? S.leaderRowMe : {}) }}>
+              <span style={S.leaderRank}>{medalForRank(rank)}</span>
               <div style={{ ...S.leaderAvatar, background: isMe ? `linear-gradient(135deg,${ACCENT},${ACCENT2})` : BG3 }}>{e.avatar}</div>
               <span style={S.leaderName}>{e.name}{isMe && <span style={S.youBadge}>Du</span>}</span>
               <span style={S.leaderCoins}>⚡ {e.coins.toLocaleString()}</span>
