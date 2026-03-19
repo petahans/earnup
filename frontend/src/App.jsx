@@ -1,6 +1,8 @@
 import { useState } from "react";
 import Dashboard from "./Dashboard";
 
+const API_BASE = "https://earnup-udhe.onrender.com";
+
 export default function App() {
   const [screen, setScreen] = useState("login");
   const [loggedUser, setLoggedUser] = useState(null);
@@ -39,7 +41,7 @@ export default function App() {
         ? { email: form.email, password: form.password }
         : { name: form.name, email: form.email, password: form.password, phone: form.phone };
 
-      const res = await fetch(`https://earnup-udhe.onrender.com/api/auth/${endpoint}`, {
+      const res = await fetch(`${API_BASE}/api/auth/${endpoint}`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(body),
